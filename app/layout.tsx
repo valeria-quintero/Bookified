@@ -1,3 +1,6 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { ui } from "@clerk/ui";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { IBM_Plex_Serif, Mona_Sans } from "next/font/google";
 import "./globals.css";
@@ -25,10 +28,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      className={`${ibmPlexSerif.variable} ${monaSans.variable} relative font-sans h-full antialiased`}
     >
-      <body className={`${ibmPlexSerif.variable} ${monaSans.variable} relative font-sans h-full antialiased`}>
-        <Navbar />
-        {children}
+      <body className="min-h-full flex flex-col">
+        <ClerkProvider ui={ui} appearance={{ theme: shadcn }}>
+          <Navbar />
+          {children}
+        </ClerkProvider>
       </body>
     </html>
   );
