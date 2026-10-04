@@ -109,8 +109,8 @@ export const voiceOptions = {
 
 // Voice categories for the selector UI
 export const voiceCategories = {
-    male: ['dave', 'daniel', 'chris'],
-    female: ['rachel', 'sarah'],
+    male: ['dave', 'daniel', 'chris'] as const,
+    female: ['rachel', 'sarah'] as const,
 };
 
 // Default voice
