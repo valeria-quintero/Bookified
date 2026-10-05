@@ -25,6 +25,12 @@ import {
   FormMessage,
   useFormField,
 } from "@/components/ui/form"
+import { useAuth } from "@clerk/nextjs"
+import { toast } from 'sonner'
+import { useRouter } from "next/navigation"
+import { checkBookExists, createBook, saveBookSegments } from "@/lib/actions/book.actions"
+import { parsePDFFile } from "@/lib/utils"
+import { upload } from "@vercel/blob/client"
 
 const bookFormSchema = z.object({
   pdfFile: z
@@ -38,7 +44,7 @@ const bookFormSchema = z.object({
     .optional(),
   title: z.string().trim().min(1, "Enter the book title."),
   author: z.string().trim().min(1, "Enter the author name."),
-  voice: z.enum(["dave", "daniel", "chris", "rachel", "sarah"]),
+  persona: z.enum(["dave", "daniel", "chris", "rachel", "sarah"]),
 })
 
 type BookFormValues = z.infer<typeof bookFormSchema>
@@ -135,20 +141,123 @@ export default function UploadForm() {
     defaultValues: {
       title: "",
       author: "",
-      voice: DEFAULT_VOICE,
+      persona: DEFAULT_VOICE,
+      pdfFile: undefined,
+      coverImage: undefined,
     },
   })
+  const {userId } = useAuth()
+  const router = useRouter()
 
-  async function onSubmit() {
-    setSubmissionError(undefined)
-    setShowLoading(true)
-    try {
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 800))
-      setSubmissionError("Book synthesis is not connected yet. Your files were not uploaded.")
-    } finally {
-      setShowLoading(false)
-    }
+ async function onSubmit(data: BookFormValues) {
+  if (!userId) {
+    return toast.error("You must be logged in to upload a book.")
   }
+
+  const file = data.pdfFile ?? pdfFile
+
+  if (!file) {
+    form.setError("pdfFile", {
+      type: "manual",
+      message: "Please upload a PDF file.",
+    })
+    toast.error("Please upload a PDF file.")
+    return
+  }
+
+  setSubmissionError(undefined)
+  setShowLoading(true)
+
+  try {
+    const existsCheck = await checkBookExists(data.title)
+
+    if (existsCheck?.exists && existsCheck.book) {
+      toast.info("Book with same title already exists.")
+      form.reset()
+      setPdfFile(undefined)
+      setCoverImage(undefined)
+      router.push(`/books/${existsCheck.book.slug}`)
+      return
+    }
+
+    const fileTitle = data.title.replace(/\s+/g, "_").toLowerCase();
+
+    const parsedPDF = await parsePDFFile(file);
+
+    if(parsedPDF.content.length === 0) {
+      toast.error("Failed to parse PDF file. Try again with another file.")
+      return
+    }
+
+    const uploadedPdfBlob = await upload(fileTitle, file, {
+      access: "public",
+      handleUploadUrl: '/api/upload',
+      contentType: 'application/pdf',
+    })
+
+    let coverUrl: string
+    let coverBlobKey: string
+
+    if (data.coverImage) {
+      const coverFile = data.coverImage
+      const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, coverFile, {
+        access: "public",
+        handleUploadUrl: "/api/upload",
+        contentType: coverFile.type,
+      })
+      coverUrl = uploadedCoverBlob.url
+      coverBlobKey = uploadedCoverBlob.pathname
+    } else {
+      const response = await fetch(parsedPDF.cover)
+      const blob = await response.blob();
+
+      const uploadedCoverBlob = await upload(`${fileTitle}_cover.png`, blob, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        contentType: 'image/png'
+      })
+      coverUrl = uploadedCoverBlob.url
+      coverBlobKey = uploadedCoverBlob.pathname
+    }
+
+    const book = await createBook({
+      clerkId: userId,
+      title: data.title,
+      author: data.author,
+      persona: data.persona,
+      fileURL: uploadedPdfBlob.url,
+      fileBlobKey: uploadedPdfBlob.pathname,
+      coverURL: coverUrl,
+      fileSize: file.size,
+    })
+
+    if(!book.success) throw new Error ("Failed to create book");
+
+    if (book.alreadyExists) {
+      toast.info("Book with same title already exists.")
+      form.reset()
+      router.push(`/books/${existsCheck.book.slug}`)
+      return
+    }
+
+    const segments = await saveBookSegments(book.data._id, userId, parsedPDF.content);
+
+    if(!segments.success) {
+      toast.error("Failed to save book segments");
+      throw new Error("Failed to save book segments")
+    }
+
+    form.reset();
+    router.push('/');
+
+  } catch (error) {
+    console.error(error)
+
+    toast.error("Failed to upload book. Please try again later.")
+  } finally {
+    setShowLoading(false)
+  }
+}
 
   return (
     <div className="new-book-wrapper">
@@ -250,7 +359,7 @@ export default function UploadForm() {
 
           <FormField
             control={form.control}
-            name="voice"
+            name="persona"
             render={({ field }) => (
               <FormItem>
                 <fieldset className="space-y-3">
