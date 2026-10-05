@@ -612,8 +612,8 @@
   }
   @media (min-width: 1200px) {
     .library-hero-description {
-      width: 470px;
-      max-width: calc(100vw - 770px);
+      width: 100%;
+      max-width: 470px;
     }
   }
   .library-search-wrapper {
