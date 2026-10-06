@@ -7,6 +7,26 @@ import BookSegment from "@/database/models/book-segment.model";
 import { auth } from "@clerk/nextjs/server";
 import { del } from "@vercel/blob";
 
+export const  getAllBooks = async () => {
+    try {
+        await connectToDatabase();
+
+        const books = await Book.find().sort({createdAt: -1}).lean();
+
+        return {
+            success: true,
+            data: serializeData(books)
+        }
+    } catch (e) {
+        console.error('Error connecting to database', e);
+        return {
+            success: false,
+            error: e
+        }
+    }
+}
+
+
 const deleteBookBlobs = async (fileBlobKey: string, coverBlobKey?: string) => {
     const results = await Promise.allSettled([
         del(fileBlobKey),
