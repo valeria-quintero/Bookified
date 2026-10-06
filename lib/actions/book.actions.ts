@@ -26,6 +26,35 @@ export const  getAllBooks = async () => {
     }
 }
 
+export const getBookBySlug = async (slug: string) => {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return {
+                success: false,
+                error: "Unauthorized",
+            }
+        }
+
+        await connectToDatabase();
+
+        const book = await Book.findOne({ clerkId: userId, slug })
+            .select("title author coverURL persona")
+            .lean();
+
+        return {
+            success: true,
+            data: book ? serializeData(book) : null,
+        }
+    } catch (e) {
+        console.error("Error fetching book by slug:", e);
+        return {
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+        }
+    }
+}
+
 
 const deleteBookBlobs = async (fileBlobKey: string, coverBlobKey?: string) => {
     const results = await Promise.allSettled([
