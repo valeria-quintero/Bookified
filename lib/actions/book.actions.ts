@@ -4,7 +4,6 @@ import { CreateBook, TextSegment } from "@/types";
 import { generateSlug, serializeData } from "../utils";
 import Book from "@/database/models/book.model";
 import BookSegment from "@/database/models/book-segment.model";
-import { success } from "zod";
 
 export const checkBookExists = async (title: string) => {
     try {
@@ -16,18 +15,21 @@ export const checkBookExists = async (title: string) => {
 
         if (existingBook) {
             return {
+                success: true,
                 exists: true,
                 book: serializeData(existingBook),
             }
         }
         return {
+            success: true,
             exists: false,
         }
 
     } catch (e) {
         console.error("Error checking if book exists:", e);
         return {
-            exists: false, error: e
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
         }
     }
 }
@@ -57,7 +59,7 @@ export const createBook = async(data: CreateBook) => {
         console.error("Error creating book:", e);
         return {
             success: false,
-            error: e,
+            error: e instanceof Error ? e.message : String(e),
         }
     }
 }

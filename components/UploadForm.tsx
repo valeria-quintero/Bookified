@@ -171,7 +171,11 @@ export default function UploadForm() {
   try {
     const existsCheck = await checkBookExists(data.title)
 
-    if (existsCheck?.exists && existsCheck.book) {
+    if (!existsCheck.success) {
+      throw new Error(`Could not check whether the book already exists: ${existsCheck.error}`)
+    }
+
+    if (existsCheck.exists && existsCheck.book) {
       toast.info("Book with same title already exists.")
       form.reset()
       setPdfFile(undefined)
@@ -228,15 +232,18 @@ export default function UploadForm() {
       fileURL: uploadedPdfBlob.url,
       fileBlobKey: uploadedPdfBlob.pathname,
       coverURL: coverUrl,
+      coverBlobKey,
       fileSize: file.size,
     })
 
-    if(!book.success) throw new Error ("Failed to create book");
+    if (!book.success) {
+      throw new Error(`Failed to create book: ${book.error}`)
+    }
 
     if (book.alreadyExists) {
       toast.info("Book with same title already exists.")
       form.reset()
-      router.push(`/books/${existsCheck.book.slug}`)
+      router.push(`/books/${book.data.slug}`)
       return
     }
 
@@ -252,8 +259,9 @@ export default function UploadForm() {
 
   } catch (error) {
     console.error(error)
-
-    toast.error("Failed to upload book. Please try again later.")
+    const message = error instanceof Error ? error.message : String(error)
+    setSubmissionError(message)
+    toast.error(message)
   } finally {
     setShowLoading(false)
   }
