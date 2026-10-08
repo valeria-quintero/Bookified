@@ -28,7 +28,7 @@ import {
 import { useAuth } from "@clerk/nextjs"
 import { toast } from 'sonner'
 import { useRouter } from "next/navigation"
-import { checkBookExists, createBook, saveBookSegments } from "@/lib/actions/book.actions"
+import { checkBookExists, checkBookUploadLimit, createBook, saveBookSegments } from "@/lib/actions/book.actions"
 import { parsePDFFile } from "@/lib/utils"
 import { upload } from "@vercel/blob/client"
 
@@ -184,6 +184,18 @@ export default function UploadForm() {
       return
     }
 
+    const limitCheck = await checkBookUploadLimit()
+    if (!limitCheck.success) {
+      throw new Error(`Could not check your book upload limit: ${limitCheck.error}`)
+    }
+    if (!limitCheck.allowed) {
+      const message = `Your ${limitCheck.plan} plan allows up to ${limitCheck.limit} book${limitCheck.limit === 3 ? "" : "s"}. Upgrade your plan to upload more.`
+      setSubmissionError(message)
+      toast.error(message)
+      router.push("/subscriptions")
+      return
+    }
+
     const fileTitle = data.title.replace(/\s+/g, "_").toLowerCase();
 
     const parsedPDF = await parsePDFFile(file);
@@ -236,6 +248,9 @@ export default function UploadForm() {
     })
 
     if (!book.success) {
+      if ("isLimitReached" in book && book.isLimitReached) {
+        router.push("/subscriptions")
+      }
       throw new Error(`Failed to create book: ${book.error}`)
     }
 

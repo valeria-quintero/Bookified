@@ -8,6 +8,8 @@ import { auth } from "@clerk/nextjs/server";
 import { del } from "@vercel/blob";
 import { revalidatePath } from "next/cache";
 import mongoose from "mongoose";
+import { PLANS } from "../subscription-constants";
+import { getCurrentUserPlan } from "../subscription.server";
 
 
 export const  getAllBooks = async () => {
@@ -109,6 +111,34 @@ export const checkBookExists = async (title: string) => {
     }
 }
 
+export const checkBookUploadLimit = async () => {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return { success: false, error: "Unauthorized" };
+        }
+
+        const plan = await getCurrentUserPlan();
+        const limit = PLANS[plan].maxBooks;
+        await connectToDatabase();
+
+        const currentCount = await Book.countDocuments({ clerkId: userId });
+        return {
+            success: true,
+            allowed: currentCount < limit,
+            currentCount,
+            limit,
+            plan,
+        };
+    } catch (e) {
+        console.error("Error checking book upload limit:", e);
+        return {
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+        };
+    }
+};
+
 export const createBook = async(data: CreateBook) => {
     let canCleanup = false;
 
@@ -136,6 +166,19 @@ export const createBook = async(data: CreateBook) => {
                 alreadyExists: true,
             }
         }   
+
+        const plan = await getCurrentUserPlan();
+        const limit = PLANS[plan].maxBooks;
+        const currentCount = await Book.countDocuments({ clerkId: userId });
+        if (currentCount >= limit) {
+            await deleteBookBlobs(data.fileBlobKey, data.coverBlobKey);
+            canCleanup = false;
+            return {
+                success: false,
+                error: `Your ${plan} plan allows up to ${limit} book${limit === 3 ? "" : "s"}. Upgrade your plan to upload more.`,
+                isLimitReached: true,
+            };
+        }
 
         const book = await Book.create({...data, clerkId: userId, slug, totalSegments: 0 });
         

@@ -6,15 +6,31 @@ import Transcript from "@/components/Transcript";
 import { BookOpen, Mic, MicOff } from "lucide-react";
 import Image from "next/image";
 import type { IBook } from "@/types";
+import Link from "next/link";
+import { formatDuration } from "@/lib/utils";
+import { useUserPlan } from "@/lib/subscription.client";
+import type { CallStatus } from "@/hooks/useVapi";
+
+const statusDisplay: Record<CallStatus, { label: string; className: string }> = {
+  idle: { label: "Ready", className: "ready" },
+  connecting: { label: "Connecting", className: "connecting" },
+  starting: { label: "Starting", className: "connecting" },
+  listening: { label: "Listening", className: "listening" },
+  thinking: { label: "Thinking", className: "thinking" },
+  speaking: { label: "Speaking", className: "speaking" },
+};
 
 const VapiControls = ({
   book,
 }: {
   book: Pick<IBook, "_id" | "title" | "author" | "coverURL" | "persona">;
 }) => {
-  const { status, isActive, messages, currentMessage, currentUserMessage, duration, start, stop, clearErrors } = useVapi(book);
+  const { status, isActive, messages, currentMessage, currentUserMessage, duration, maxDurationMinutes: startedSessionLimit, limitError, start, stop, clearErrors } = useVapi(book);
+  const { isLoaded, limits } = useUserPlan();
   const { title, author, coverURL, persona } = book;
   const voice = getVoice(persona);
+  const maxDurationMinutes = startedSessionLimit ?? (isLoaded ? limits?.maxSessionMinutes : null);
+  const visibleStatus = statusDisplay[status];
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -67,18 +83,37 @@ const VapiControls = ({
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <div className="vapi-status-indicator rounded-full">
-              <span className="vapi-status-dot vapi-status-dot-ready" aria-hidden="true" />
-              <span className="vapi-status-text">Ready</span>
+              <span className={`vapi-status-dot vapi-status-dot-${visibleStatus.className}`} aria-hidden="true" />
+              <span className="vapi-status-text">{visibleStatus.label}</span>
             </div>
             <span className="vapi-badge-ai rounded-full">
               <span className="vapi-badge-ai-text">Voice: {voice.name}</span>
             </span>
             <span className="vapi-badge-ai rounded-full">
-              <span className="vapi-badge-ai-text">0:00/15:00</span>
+              <span className="vapi-badge-ai-text">
+                {formatDuration(duration)}/{maxDurationMinutes ? formatDuration(maxDurationMinutes * 60) : "--:--"}
+              </span>
             </span>
           </div>
         </div>
       </section>
+
+      {limitError && (
+        <p className="error-banner text-sm text-red-700" role="alert">
+          {limitError}{" "}
+          <Link className="font-semibold underline" href="/subscriptions">
+            View plans
+          </Link>
+          <button
+            className="ml-3 underline"
+            type="button"
+            onClick={clearErrors}
+            aria-label="Dismiss message"
+          >
+            Dismiss
+          </button>
+        </p>
+      )}
 
       <div className="vapi-transcript-wrapper">
         <Transcript

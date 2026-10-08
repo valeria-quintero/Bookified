@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 const navItems = [
     { label: "Library", href: "/" },
     { label: "Add New", href: "/books/new" },
+    { label: "Plans", href: "/subscriptions" },
 ]
 
 const Navbar = () => {
@@ -44,9 +45,9 @@ const Navbar = () => {
                     <Show when="signed-in">
                         <div className="nav-user-link">
                             <UserButton />
-                            {user?.firstName && (<Link href="/subscriptions" className="nav-user-name">
+                            {user?.firstName && (<span className="nav-user-name">
                                 {user.firstName}
-                            </Link>)}
+                            </span>)}
                         </div>
                     </Show>
                 </div>
