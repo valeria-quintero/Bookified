@@ -1,11 +1,14 @@
 'use server';
 import { connectToDatabase } from "@/database/mongoose";
 import { CreateBook, TextSegment } from "@/types";
-import { generateSlug, serializeData } from "../utils";
+import { escapeRegex, generateSlug, serializeData } from "../utils";
 import Book from "@/database/models/book.model";
 import BookSegment from "@/database/models/book-segment.model";
 import { auth } from "@clerk/nextjs/server";
 import { del } from "@vercel/blob";
+import { revalidatePath } from "next/cache";
+import mongoose from "mongoose";
+
 
 export const  getAllBooks = async () => {
     try {
@@ -135,6 +138,9 @@ export const createBook = async(data: CreateBook) => {
         }   
 
         const book = await Book.create({...data, clerkId: userId, slug, totalSegments: 0 });
+        
+        revalidatePath('/')
+
         return {
             success: true,
             data: serializeData(book),
@@ -235,63 +241,59 @@ export const saveBookSegments = async (bookId: string, segments: TextSegment[]) 
     }
 }
 
-export const searchBookSegments = async (bookId: string, query: string, limit = 3) => {
+
+// Searches book segments using MongoDB text search with regex fallback
+export const searchBookSegments = async (bookId: string, query: string, limit: number = 5) => {
     try {
-        const { userId } = await auth();
-        if (!userId) {
-            return {
-                success: false,
-                error: "Unauthorized",
-            }
-        }
-
-        if (!bookId || !query.trim()) {
-            return {
-                success: false,
-                error: "Book ID and search query are required",
-            }
-        }
-
-        if (!Number.isInteger(limit) || limit < 1) {
-            return {
-                success: false,
-                error: "Search result limit must be a positive integer",
-            }
-        }
-
         await connectToDatabase();
 
-        const book = await Book.findOne({ _id: bookId, clerkId: userId }).select("_id").lean();
-        if (!book) {
-            return {
-                success: false,
-                error: "Book not found or access denied",
-            }
+        console.log(`Searching for: "${query}" in book ${bookId}`);
+
+        const bookObjectId = new mongoose.Types.ObjectId(bookId);
+
+        // Try MongoDB text search first (requires text index)
+        let segments: Record<string, unknown>[] = [];
+        try {
+            segments = await BookSegment.find({
+                bookId: bookObjectId,
+                $text: { $search: query },
+            })
+                .select('_id bookId content segmentIndex pageNumber wordCount')
+                .sort({ score: { $meta: 'textScore' } })
+                .limit(limit)
+                .lean();
+        } catch {
+            // Text index may not exist — fall through to regex fallback
+            segments = [];
         }
 
-        const segments = await BookSegment.find({
-            bookId: book._id,
-            clerkId: userId,
-            $text: { $search: query.trim() },
-        }, {
-            content: 1,
-            segmentIndex: 1,
-            pageNumber: 1,
-            score: { $meta: "textScore" },
-        })
-            .sort({ score: { $meta: "textScore" } })
-            .limit(limit)
-            .lean();
+        // Fallback: regex search matching ANY keyword
+        if (segments.length === 0) {
+            const keywords = query.split(/\s+/).filter((k) => k.length > 2);
+            const pattern = keywords.map(escapeRegex).join('|');
+
+            segments = await BookSegment.find({
+                bookId: bookObjectId,
+                content: { $regex: pattern, $options: 'i' },
+            })
+                .select('_id bookId content segmentIndex pageNumber wordCount')
+                .sort({ segmentIndex: 1 })
+                .limit(limit)
+                .lean();
+        }
+
+        console.log(`Search complete. Found ${segments.length} results`);
 
         return {
             success: true,
             data: serializeData(segments),
-        }
-    } catch (e) {
-        console.error("Error searching book segments:", e);
+        };
+    } catch (error) {
+        console.error('Error searching segments:', error);
         return {
             success: false,
-            error: e instanceof Error ? e.message : String(e),
-        }
+            error: (error as Error).message,
+            data: [],
+        };
     }
 }
