@@ -7,6 +7,55 @@ import BookSegment from "@/database/models/book-segment.model";
 import { auth } from "@clerk/nextjs/server";
 import { del } from "@vercel/blob";
 
+export const  getAllBooks = async () => {
+    try {
+        await connectToDatabase();
+
+        const books = await Book.find().sort({createdAt: -1}).lean();
+
+        return {
+            success: true,
+            data: serializeData(books)
+        }
+    } catch (e) {
+        console.error('Error connecting to database', e);
+        return {
+            success: false,
+            error: e
+        }
+    }
+}
+
+export const getBookBySlug = async (slug: string) => {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return {
+                success: false,
+                error: "Unauthorized",
+            }
+        }
+
+        await connectToDatabase();
+
+        const book = await Book.findOne({ clerkId: userId, slug })
+            .select("title author coverURL persona")
+            .lean();
+
+        return {
+            success: true,
+            data: book ? serializeData(book) : null,
+        }
+    } catch (e) {
+        console.error("Error fetching book by slug:", e);
+        return {
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+        }
+    }
+}
+
+
 const deleteBookBlobs = async (fileBlobKey: string, coverBlobKey?: string) => {
     const results = await Promise.allSettled([
         del(fileBlobKey),
@@ -129,6 +178,7 @@ export const saveBookSegments = async (bookId: string, segments: TextSegment[]) 
                 error: "Book not found or access denied",
             }
         }
+
         ownsBook = true;
         bookBlobKeys = {
             fileBlobKey: book.fileBlobKey,
@@ -178,6 +228,67 @@ export const saveBookSegments = async (bookId: string, segments: TextSegment[]) 
             });
         }
 
+        return {
+            success: false,
+            error: e instanceof Error ? e.message : String(e),
+        }
+    }
+}
+
+export const searchBookSegments = async (bookId: string, query: string, limit = 3) => {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return {
+                success: false,
+                error: "Unauthorized",
+            }
+        }
+
+        if (!bookId || !query.trim()) {
+            return {
+                success: false,
+                error: "Book ID and search query are required",
+            }
+        }
+
+        if (!Number.isInteger(limit) || limit < 1) {
+            return {
+                success: false,
+                error: "Search result limit must be a positive integer",
+            }
+        }
+
+        await connectToDatabase();
+
+        const book = await Book.findOne({ _id: bookId, clerkId: userId }).select("_id").lean();
+        if (!book) {
+            return {
+                success: false,
+                error: "Book not found or access denied",
+            }
+        }
+
+        const segments = await BookSegment.find({
+            bookId: book._id,
+            clerkId: userId,
+            $text: { $search: query.trim() },
+        }, {
+            content: 1,
+            segmentIndex: 1,
+            pageNumber: 1,
+            score: { $meta: "textScore" },
+        })
+            .sort({ score: { $meta: "textScore" } })
+            .limit(limit)
+            .lean();
+
+        return {
+            success: true,
+            data: serializeData(segments),
+        }
+    } catch (e) {
+        console.error("Error searching book segments:", e);
         return {
             success: false,
             error: e instanceof Error ? e.message : String(e),
